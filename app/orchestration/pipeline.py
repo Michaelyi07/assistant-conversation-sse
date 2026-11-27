@@ -195,15 +195,28 @@ class Orchestrator:
             if persisted["done"]:
                 return
             persisted["done"] = True
+            partial = streamed_text
             loop = asyncio.get_running_loop()
-            task = loop.create_task(
-                self._persist_terminal(
+
+            async def _detached() -> None:
+                await self._persist_terminal(
                     conversation, assistant_message_id, user_id, prompt_version,
-                    finish_reason=finish_reason, content="",
+                    finish_reason=finish_reason, content=partial,
                     citations=[], prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                 )
-            )
+                if partial:
+                    # Partial answer already reached the client -> ex-post review
+                    # entry (same as the explicit-cancel path).
+                    self.review_queue.push(
+                        conversation_id=str(conversation.id),
+                        message_id=str(assistant_message_id),
+                        answer_text=partial,
+                        citations=[],
+                        prompt_version=prompt_version,
+                    )
+
+            task = loop.create_task(_detached())
             self._bg_tasks.add(task)
             task.add_done_callback(self._bg_tasks.discard)
 
@@ -267,7 +280,7 @@ class Orchestrator:
                     {
                         "message_id": str(assistant_message_id),
                         "tool_name": call.name,
-                        "summary": result.summary[:300],
+                        "summary": mask_input(result.summary)[:300],
                         "ok": result.ok,
                     },
                 )
@@ -376,7 +389,9 @@ class Orchestrator:
             # (GeneratorExit at the current yield point, or task cancellation).
             # Persist the cancelled terminal state WITHOUT awaiting (we are
             # inside a cancelled anyio scope where awaits re-raise immediately;
-            # yielding during GeneratorExit raises RuntimeError).
+            # yielding during GeneratorExit raises RuntimeError). Persisted
+            # content matches the explicit-cancel path: whatever text already
+            # streamed out.
             schedule_detached_persist("cancelled")
             raise
         except Exception as exc:  # never let the stream die with a bare exception

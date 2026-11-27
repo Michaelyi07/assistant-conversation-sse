@@ -32,7 +32,7 @@ platform win32 -- Python 3.13.14, pytest-9.2.0, pluggy-1.7.0
 configfile: pytest.ini
 plugins: anyio-4.16.0, platformdirs-4.14.5, asyncio-1.5.0
 asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=function
-collecting ... collected 33 items
+collecting ... collected 35 items
 
 tests/test_integration_sse.py::test_ac1_sse_event_order_and_tool_events_between PASSED [  3%]
 tests/test_integration_sse.py::test_ac3_review_queue_entries_and_priority PASSED [  6%]
@@ -67,7 +67,7 @@ tests/test_units.py::test_stub_executor_unknown_tool PASSED              [ 90%]
 tests/test_units.py::test_stub_executor_confirmation_tool_not_executed PASSED [ 93%]
 tests/test_units.py::test_scripted_gateway_plays_back_in_order PASSED    [ 96%]
 tests/test_units.py::test_system_prompt_v1_contains_all_four_prohibitions PASSED [100%]
-============================= 33 passed in 36.13s =============================
+============================ 35 passed in 34.32s ============================
 ```
 
 The session fixture creates an ephemeral PostgreSQL 16 database, migrates it

@@ -30,7 +30,10 @@ Response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
 2. `message_end` is always the last event; exactly one per generation.
 3. Tool events (`tool_call`, `tool_confirmation_required`, `tool_result`) appear
    strictly between `message_start` and `message_end`.
-4. `delta` events only appear for a final answer; each `text` is a text increment.
+4. `delta` events stream answer text; each `text` is a text increment. On
+   cancellation the already-streamed text is a partial answer (the terminal
+   `message_end` carries `finish_reason=cancelled`). Citation events only
+   accompany `finish_reason=stop`.
 
 ## `finish_reason` values
 
