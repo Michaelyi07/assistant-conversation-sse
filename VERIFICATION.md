@@ -14,8 +14,8 @@ PostgreSQL: PostgreSQL 16.9, compiled by Visual C++ build 1943, 64-bit
 
 ```
 $ python -m pytest tests/test_units.py tests/test_offline_orchestration.py -q
-....................                                                     [100%]
-20 passed in 3.48s
+.....................                                                     [100%]
+22 passed in 1.68s
 ```
 
 Covers: input masking, token estimation, context assembly/truncation, per-user
