@@ -88,9 +88,9 @@ external service is contacted, and all data in tests/stubs is fabricated.
   the tool is NOT executed.
 - All persisted content (user input, tool results, answers) passes the masking
   layer before it reaches the database.
-- Review entries are pushed for final answers (`finish_reason=stop`); cancelled,
-  error, tool-limit, and confirmation-required generations have no final answer
-  and produce no entry.
+- Review entries are pushed for every generation that reaches persisted final
+  text (stop, tool_limit, confirmation_required); cancelled and error
+  generations have no final-answer text and produce no entry.
 - Client disconnect cannot receive a terminal event by definition; the server
   persists `finish_reason=cancelled` for the assistant message (see
   `Orchestrator` disconnect path).

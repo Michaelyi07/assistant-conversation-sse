@@ -90,8 +90,11 @@ async def test_offline_orchestration_confirmation_closes_generation():
     assert events[-1][1]["finish_reason"] == "confirmation_required"
     streamed = "".join(d["text"] for e, d in events if e == "delta")
     assert streamed == CONFIRMATION_NOTICE  # second scripted turn never reached
-    # No review entry: only stop answers are pushed.
-    assert orch.review_queue.snapshot() == []
+    # The confirmation notice IS a persisted final answer -> one review entry
+    # (no citations -> priority review).
+    entries = orch.review_queue.snapshot()
+    assert len(entries) == 1
+    assert entries[0].priority is True and entries[0].citations_present is False
 
 
 async def test_offline_orchestration_masks_user_and_tool_content():
@@ -125,3 +128,17 @@ async def test_offline_orchestration_cancel_flag():
     assistant_rows = [m for m in orch._memory_messages if m["role"] == "assistant"]
     assert assistant_rows[0]["finish_reason"] == "cancelled"
     assert conv.id is not None
+
+
+async def test_offline_orchestration_tool_limit_pushes_review_entry():
+    gateway = ScriptedGateway([
+        GatewayResponse(tool_call=GatewayToolCall(name="search_knowledge_base", arguments={"query": "q"}))
+        for _ in range(7)
+    ])
+    orch, conv = make_orchestrator(gateway, StubToolExecutor())
+    events = await collect(orch, conv)
+    assert events[-1][1]["finish_reason"] == "tool_limit"
+    # The tool-limit notice is a persisted final answer -> one review entry
+    # (citations from the 5 executed tool results are attached).
+    entries = orch.review_queue.snapshot()
+    assert len(entries) == 1 and entries[0].citations_present is True

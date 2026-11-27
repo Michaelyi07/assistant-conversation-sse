@@ -322,14 +322,16 @@ class Orchestrator:
                 return
 
             # 6. Persist the assistant answer and push the ex-post review entry.
+            # Every answer that reaches persisted final text (stop, tool_limit,
+            # confirmation_required) is pushed; cancelled/error generations have
+            # no final-answer text and produce no entry.
             final_citations = summarize_citations(citations)
             await persist_terminal_once(finish_reason or "stop", final_text or "", final_citations)
-            if finish_reason == "stop":
-                # Non-blocking ex-post review push (one entry per final answer).
+            if final_text:
                 self.review_queue.push(
                     conversation_id=str(conversation.id),
                     message_id=str(assistant_message_id),
-                    answer_text=final_text or "",
+                    answer_text=final_text,
                     citations=final_citations,
                     prompt_version=prompt_version,
                 )
