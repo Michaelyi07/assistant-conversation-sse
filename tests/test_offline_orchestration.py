@@ -142,3 +142,27 @@ async def test_offline_orchestration_tool_limit_pushes_review_entry():
     # (citations from the 5 executed tool results are attached).
     entries = orch.review_queue.snapshot()
     assert len(entries) == 1 and entries[0].citations_present is True
+
+
+async def test_offline_orchestration_cancel_with_streamed_text_pushes_review():
+    gateway = ScriptedGateway([GatewayResponse(text="word " * 60)])
+    orch, conv = make_orchestrator(gateway, StubToolExecutor())
+    cancel_event = asyncio.Event()
+    events = []
+
+    async def run_and_cancel():
+        async for chunk in orch.run(conv, "question", "user-1", "page", cancel_event, uuid.uuid4()):
+            events.extend(parse_sse(chunk))
+            if any(e == "delta" for e, _ in events):
+                cancel_event.set()  # cancel as soon as the first delta flows
+
+    await asyncio.wait_for(asyncio.wait_for(run_and_cancel(), timeout=10), timeout=15)
+    streamed = "".join(d["text"] for e, d in events if e == "delta")
+    assert streamed
+    assert events[-1][1]["finish_reason"] == "cancelled"
+    # Partial answer already reached the client -> persisted + review entry.
+    assistant_rows = [m for m in orch._memory_messages if m["role"] == "assistant"]
+    assert assistant_rows[0]["content"] == streamed
+    assert assistant_rows[0]["finish_reason"] == "cancelled"
+    entries = orch.review_queue.snapshot()
+    assert len(entries) == 1 and entries[0].answer_digest

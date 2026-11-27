@@ -169,6 +169,7 @@ class Orchestrator:
         completion_tokens = 0
         finish_reason: str | None = None
         final_text: str | None = None
+        streamed_text = ""
         tool_rounds = 0
         persisted = {"done": False}
 
@@ -277,7 +278,11 @@ class Orchestrator:
                         site_id=conversation.site_id,
                         role="tool",
                         content=f"[{call.name}] {result.summary}",
-                        meta={"tool": call.name, "arguments": call.arguments},
+                        meta={
+                            "tool": call.name,
+                            "arguments": {k: mask_input(str(v))[:100]
+                                          for k, v in call.arguments.items()},
+                        },
                         created_by=user_id,
                     )
                     if result.citation:
@@ -301,13 +306,26 @@ class Orchestrator:
                         finish_reason = "cancelled"
                         break
                     yield _sse(ev.EVENT_DELTA, {"message_id": str(assistant_message_id), "text": chunk})
+                    streamed_text += chunk
                     await self._interruptible_sleep(settings.delta_delay, cancel_event)
                 if finish_reason == "stop":
                     for c in summarize_citations(citations):
                         yield _sse(ev.EVENT_CITATION, {"message_id": str(assistant_message_id), **c})
 
             if finish_reason == "cancelled":
-                await persist_terminal_once("cancelled", "", [])
+                # Persist whatever text already streamed out; if any text
+                # reached the client it is a partial final answer and gets an
+                # ex-post review entry (no citations for partial answers).
+                partial = streamed_text
+                await persist_terminal_once("cancelled", partial, [])
+                if partial:
+                    self.review_queue.push(
+                        conversation_id=str(conversation.id),
+                        message_id=str(assistant_message_id),
+                        answer_text=partial,
+                        citations=[],
+                        prompt_version=prompt_version,
+                    )
                 yield _sse(
                     ev.EVENT_MESSAGE_END,
                     {
