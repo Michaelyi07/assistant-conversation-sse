@@ -82,12 +82,18 @@ external service is contacted, and all data in tests/stubs is fabricated.
 
 ## v1 scope notes
 
-- `tool_confirmation_required`: emitted when the executor reports a tool requires confirmation;
-  in v1 the tool is NOT executed (no client confirmation loop in this work order).
-- Review entries are pushed for final answers (`finish_reason=stop`); cancelled/error
-  generations have no final answer and produce no entry.
-- Client disconnect cannot receive a terminal event by definition; the server persists
-  `finish_reason=cancelled` for the assistant message (see `Orchestrator` disconnect path).
+- `tool_confirmation_required`: emitted when the executor reports a tool requires
+  confirmation. v1 has no client confirmation loop, so the generation closes
+  cleanly (`finish_reason=confirmation_required`) with an explanatory answer;
+  the tool is NOT executed.
+- All persisted content (user input, tool results, answers) passes the masking
+  layer before it reaches the database.
+- Review entries are pushed for final answers (`finish_reason=stop`); cancelled,
+  error, tool-limit, and confirmation-required generations have no final answer
+  and produce no entry.
+- Client disconnect cannot receive a terminal event by definition; the server
+  persists `finish_reason=cancelled` for the assistant message (see
+  `Orchestrator` disconnect path).
 
 ## Layout
 

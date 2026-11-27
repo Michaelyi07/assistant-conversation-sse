@@ -376,10 +376,9 @@ async def test_tool_limit_after_five_tool_calls(clean_state, server, test_db_url
         await client.aclose()
 
 
-async def test_tool_confirmation_required_event(clean_state, server):
+async def test_tool_confirmation_required_event(clean_state, server, test_db_url):
     gateway = ScriptedGateway([
         GatewayResponse(tool_call=GatewayToolCall(name="send_external_message", arguments={"to": "boss"})),
-        GatewayResponse(text="The external send was not executed because it requires confirmation."),
     ])
     executor = StubToolExecutor(tools_requiring_confirmation={"send_external_message"})
     rewire(clean_state, gateway=gateway, executor=executor)
@@ -394,9 +393,21 @@ async def test_tool_confirmation_required_event(clean_state, server):
         i = kinds.index("tool_confirmation_required")
         assert kinds[i - 1] == "tool_call"  # confirmation follows its tool_call
         assert kinds[-1] == "message_end"
-        assert events[-1][1]["finish_reason"] == "stop"
-        # The confirmed tool never produced a tool_result.
+        assert events[-1][1]["finish_reason"] == "confirmation_required"
+        # The confirmed tool never produced a tool_result; the notice is
+        # streamed as deltas and persisted verbatim.
         assert "tool_result" not in kinds
+        assert "delta" in kinds
+        streamed = "".join(d["text"] for e, d in events if e == "delta")
+        with sync_db(test_db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT content FROM messages WHERE conversation_id = %s AND role = 'assistant' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (cid,),
+            )
+            (content,) = cur.fetchone()
+        assert content == streamed
+        assert "requires user confirmation" in content
     finally:
         await client.aclose()
 

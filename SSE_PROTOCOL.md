@@ -18,7 +18,7 @@ Response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
 | `message_start` | `message_id`, `conversation_id`, `prompt_version` | First event of every generation |
 | `delta` | `message_id`, `text` | Each text increment of the final answer |
 | `tool_call` | `message_id`, `tool_name`, `arguments_summary` | The model requests a tool |
-| `tool_confirmation_required` | `message_id`, `tool_name`, `reason` | The requested tool requires user confirmation (v1: tool is NOT executed) |
+| `tool_confirmation_required` | `message_id`, `tool_name`, `reason` | The requested tool requires user confirmation; v1 closes the generation cleanly (tool NOT executed, `finish_reason=confirmation_required`) |
 | `tool_result` | `message_id`, `tool_name`, `summary`, `ok` | Tool execution finished (summary only) |
 | `citation` | `message_id`, `source`, `title` | Sources backing the final answer |
 | `message_end` | `message_id`, `finish_reason`, `tokens{prompt_tokens, completion_tokens, total_tokens}` | Last event of every generation |
@@ -38,6 +38,7 @@ Response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
 |---|---|
 | `stop` | Final answer produced normally |
 | `tool_limit` | 5 tool calls executed; the 6th tool request was refused |
+| `confirmation_required` | A requested tool needs user confirmation; generation closed cleanly without executing it |
 | `cancelled` | Cancel endpoint called or client disconnected (within 2 s) |
 | `error` | Internal failure (an `error` event precedes `message_end`) |
 

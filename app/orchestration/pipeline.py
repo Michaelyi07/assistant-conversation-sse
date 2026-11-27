@@ -44,6 +44,12 @@ TOOL_LIMIT_NOTICE = (
     "Please rephrase the question."
 )
 
+CONFIRMATION_NOTICE = (
+    "The requested tool requires user confirmation, which is not available in "
+    "this session, so the tool was not executed. "
+    "Please ask your administrator how to enable tool confirmation."
+)
+
 
 def _sse(event: str, data: dict) -> str:
     return ev.format_sse(event, data)
@@ -68,7 +74,7 @@ class Orchestrator:
         review_queue: ReviewQueueStub,
         limiter,
         cancel_registry: dict[str, asyncio.Event],
-        session_factory: async_sessionmaker[AsyncSession],
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self.settings = settings
         self.gateway = gateway
@@ -76,12 +82,24 @@ class Orchestrator:
         self.review_queue = review_queue
         self.limiter = limiter
         self.cancel_registry = cancel_registry
+        # session_factory=None enables in-memory persistence (offline tests and
+        # development before S5 integration); production always passes the
+        # async session factory wired in the app lifespan.
         self.session_factory = session_factory
+        self._memory_messages: list[dict] = []
         self._bg_tasks: set[asyncio.Task] = set()
 
     async def _load_history(
         self, conversation_id: uuid.UUID, org_id: str, exclude_message_id: uuid.UUID
     ) -> list[dict]:
+        if self.session_factory is None:
+            return [
+                {"role": m["role"], "content": m["content"]}
+                for m in self._memory_messages
+                if m["conversation_id"] == conversation_id
+                and m["id"] != exclude_message_id
+                and m["role"] in ("user", "assistant")
+            ]
         async with self.session_factory() as session:
             rows = await session.execute(
                 select(Message)
@@ -97,6 +115,12 @@ class Orchestrator:
             return [{"role": r.role, "content": r.content} for r in rows.scalars()]
 
     async def _persist_message(self, **kwargs) -> None:
+        # Mask everything before persistence: tool results can carry PII from
+        # backend systems just like user input.
+        kwargs["content"] = mask_input(kwargs.get("content", ""))
+        if self.session_factory is None:
+            self._memory_messages.append(dict(kwargs))
+            return
         async with self.session_factory() as session:
             session.add(Message(**kwargs))
             await session.commit()
@@ -219,7 +243,10 @@ class Orchestrator:
                 )
                 result = await self.executor.execute(call.name, call.arguments)
                 if result.requires_confirmation:
-                    # v1: report confirmation requirement; tool is not executed.
+                    # v1: report the confirmation requirement and close the
+                    # generation cleanly (no client confirmation loop exists in
+                    # this work order, so leaving the loop open would strand
+                    # the model waiting for a tool result that never comes).
                     yield _sse(
                         ev.EVENT_TOOL_CONFIRMATION_REQUIRED,
                         {
@@ -228,10 +255,8 @@ class Orchestrator:
                             "reason": result.error or "tool requires user confirmation",
                         },
                     )
-                    messages.append(
-                        {"role": "tool", "content": f"[{call.name}] not executed: confirmation required"}
-                    )
-                    continue
+                    finish_reason = "confirmation_required"
+                    break
                 yield _sse(
                     ev.EVENT_TOOL_RESULT,
                     {
@@ -259,9 +284,11 @@ class Orchestrator:
                 else:
                     messages.append({"role": "tool", "content": f"[{call.name}] failed: {result.error}"})
 
-            # 5. Stream the final answer (or the tool-limit notice) as deltas.
+            # 5. Stream the final answer (or the notices) as deltas.
             if finish_reason == "tool_limit":
                 final_text = TOOL_LIMIT_NOTICE
+            elif finish_reason == "confirmation_required":
+                final_text = CONFIRMATION_NOTICE
             if final_text is not None:
                 completion_tokens += estimate_tokens(final_text)
                 chunks = [
