@@ -219,19 +219,22 @@ class Orchestrator:
             )
 
             # 4. Tool call loop: until final answer or the tool-call limit.
+            # The limit check sits BEFORE the gateway call: after 5 executed
+            # tool calls no further model request is made at all.
             while True:
                 if cancel_event.is_set():
                     finish_reason = "cancelled"
+                    break
+                if tool_rounds >= settings.max_tool_calls:
+                    # tool_rounds counts EXECUTED calls: exactly 5 run; when
+                    # the limit is reached we stop without another request.
+                    finish_reason = "tool_limit"
                     break
                 response = await self.gateway.complete(messages, TOOL_SPECS)
                 completion_tokens += max(1, response.completion_tokens)
                 if response.tool_call is None:
                     final_text = response.text or ""
                     finish_reason = "stop"
-                    break
-                if tool_rounds >= settings.max_tool_calls:
-                    # Tool-call limit reached: do not execute further tools.
-                    finish_reason = "tool_limit"
                     break
                 tool_rounds += 1
                 call = response.tool_call
@@ -269,9 +272,10 @@ class Orchestrator:
                     },
                 )
                 if result.ok:
-                    # Backfill the tool result into the running context and
-                    # persist it as a tool message (placeholder backfill -> DB).
-                    messages.append({"role": "tool", "content": result.summary})
+                    # Backfill the tool result into the running context (masked:
+                    # PII must not reach the model context either) and persist it
+                    # as a tool message (placeholder backfill -> DB).
+                    messages.append({"role": "tool", "content": mask_input(result.summary)})
                     await self._persist_message(
                         conversation_id=conversation.id,
                         org_id=conversation.org_id,
