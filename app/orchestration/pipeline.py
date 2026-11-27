@@ -116,13 +116,14 @@ class Orchestrator:
 
     async def _persist_message(self, **kwargs) -> None:
         # Mask everything before persistence: tool results can carry PII from
-        # backend systems just like user input.
-        kwargs["content"] = mask_input(kwargs.get("content", ""))
+        # backend systems just like user input. Builds a new dict (no mutation
+        # of the caller's arguments).
+        row = dict(kwargs, content=mask_input(kwargs.get("content", "")))
         if self.session_factory is None:
-            self._memory_messages.append(dict(kwargs))
+            self._memory_messages.append(row)
             return
         async with self.session_factory() as session:
-            session.add(Message(**kwargs))
+            session.add(Message(**row))
             await session.commit()
 
     async def run(
